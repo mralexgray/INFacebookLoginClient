@@ -1,0 +1,7 @@
+//
+// Prefix header for all source files of the 'INFacebookLoginClient' target in the 'INFacebookLoginClient' project
+//
+
+#ifdef __OBJC__
+	#import <Cocoa/Cocoa.h>
+#endif
