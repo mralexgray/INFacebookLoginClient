@@ -7,12 +7,29 @@
 //
 
 #import "INAppDelegate.h"
+#import "INFacebookLoginClient.h"
 
-@implementation INAppDelegate
+static NSString * const INFacebookClientID = @"321217921339012";
+
+@implementation INAppDelegate {
+	INFacebookLoginClient *_client;
+}
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification
 {
-	// Insert code here to initialize your application
+	[[NSAppleEventManager sharedAppleEventManager] setEventHandler:self andSelector:@selector(handleURLEvent:withReplyEvent:) forEventClass:kInternetEventClass andEventID:kAEGetURL];
 }
 
+- (void)handleURLEvent:(NSAppleEventDescriptor*)event withReplyEvent:(NSAppleEventDescriptor*)replyEvent
+{
+	NSURL *url = [NSURL URLWithString:[[event paramDescriptorForKeyword:keyDirectObject] stringValue]];
+}
+
+- (IBAction)authenticate:(id)sender
+{
+	INFacebookLoginClient *client = [[INFacebookLoginClient alloc] initWithClientID:INFacebookClientID];
+	// The redirect URI must match the one set at https://developers.facebook.com/apps/
+	NSURL *authURL = [client authenticationURLForRedirectURI:@"in-facebook://auth" permissions:nil];
+	[[NSWorkspace sharedWorkspace] openURL:authURL];
+}
 @end

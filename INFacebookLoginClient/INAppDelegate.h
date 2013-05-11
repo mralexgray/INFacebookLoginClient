@@ -11,5 +11,6 @@
 @interface INAppDelegate : NSObject <NSApplicationDelegate>
 
 @property (assign) IBOutlet NSWindow *window;
-
+@property (nonatomic, weak) IBOutlet NSTextField *label;
+- (IBAction)authenticate:(id)sender;
 @end
