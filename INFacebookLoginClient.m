@@ -107,10 +107,10 @@ static NSString * const INFacebookLoginClientErrorDomain = @"INFacebookLoginClie
 		
 		NSError *error = [NSError errorWithDomain:INFacebookLoginClientErrorDomain code:0 userInfo:errorParameters];
 		if (failure) failure(error);
-	} else if (![state isEqualToString:_stateVerificationUUID]) {
+	} else if (![state isEqualToString:self.stateVerificationUUID]) {
 		if (failure) failure(self.class.stateMismatchError);
 	} else {
-		[self getPath:@"oauth/access_token" parameters:@{@"client_id" : self.clientID, @"client_secret" : self.clientSecret, @"redirect_uri" : _redirectURI, @"code" : parameters[@"code"]} success:^(AFHTTPRequestOperation *operation, id responseObject) {
+		[self getPath:@"oauth/access_token" parameters:@{@"client_id" : self.clientID, @"client_secret" : self.clientSecret, @"redirect_uri" : self.redirectURI, @"code" : parameters[@"code"]} success:^(AFHTTPRequestOperation *operation, id responseObject) {
 			NSString *response = [[NSString alloc] initWithData:responseObject encoding:NSUTF8StringEncoding];
 			NSDictionary *parameters = [response URLQueryParameters];
 			INFacebookAccessToken *token = [[INFacebookAccessToken alloc] initWithParameters:parameters];
@@ -119,8 +119,8 @@ static NSString * const INFacebookLoginClientErrorDomain = @"INFacebookLoginClie
 			if (failure) failure(error);
 		}];
 	}
-	_stateVerificationUUID = nil;
-	_redirectURI = nil;
+	self.stateVerificationUUID = nil;
+	self.redirectURI = nil;
 }
 
 + (NSError *)stateMismatchError
