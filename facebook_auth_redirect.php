@@ -25,17 +25,24 @@ To work around this problem, this PHP script is used as the redirect instead (ho
 on a web server), which extracts the query fragment to the URL and redirects to the 
 actual app URI.
 */
-define("REDIRECT_URI", "in-facebook://auth");
 
-// Extract the query fragment of the URL
-$parts = parse_url($url);
-parse_str($parts['query'], $query);
+// Your app-specific redirect URI
+$REDIRECT_URI = "in-facebook://auth";
+// The success page to redirect to after the app specific URI has been opened
+$SUCCESS_URL = "http://indragie.com";
 
 // Construct a new URL with the original query fragment
 // and the modified redirect URI
-$new_url = REDIRECT_URI . "?" . http_build_query($query, '', '&');
+$redirect_url = $REDIRECT_URI . "?" . $_SERVER['QUERY_STRING'];
 
-// Redirect to the new URL
-header('Location : ' . $new_url, true, 303);
-die();
+// Open the callback URL to activate the application
+echo "<html>
+<head>
+<title>Redirecting...</title>
+</head>
+<script type=\"text/javascript\">
+window.open('$redirect_url');
+window.location.replace('$SUCCESS_URL');
+</script>
+</html>"
 ?>

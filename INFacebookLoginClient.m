@@ -30,8 +30,6 @@ static NSString * const INFacebookLoginClientErrorDomain = @"INFacebookLoginClie
 @interface INFacebookAccessToken ()
 @property (nonatomic, copy, readwrite) NSString *accessToken;
 @property (nonatomic, strong, readwrite) NSDate *expiryDate;
-@property (nonatomic, copy, readwrite) NSString *state;
-@property (nonatomic, strong, readwrite) NSError *error;
 - (instancetype)initWithParameters:(NSDictionary *)parameters;
 @end
 
@@ -47,19 +45,26 @@ static NSString * const INFacebookLoginClientErrorDomain = @"INFacebookLoginClie
 - (instancetype)initWithParameters:(NSDictionary *)parameters;
 @end
 
-@implementation INFacebookLoginClient {
-	NSString *_stateVerificationUUID;
-}
+@interface  INFacebookLoginClient ()
+@property (nonatomic, copy) NSString *stateVerificationUUID;
+@property (nonatomic, copy) NSString *redirectURI;
+@end
+
+@implementation INFacebookLoginClient
 
 #pragma mark - Initialization
 
-- (instancetype)initWithClientID:(NSString *)clientID
+- (instancetype)initWithClientID:(NSString *)clientID clientSecret:(NSString *)clientSecret
 {
 	if ((self = [super initWithBaseURL:[NSURL URLWithString:INFacebookLoginClientGraphBaseURL]])) {
+		NSParameterAssert(clientID);
+		NSParameterAssert(clientSecret);
 		_clientID = [clientID copy];
+		_clientSecret = [clientSecret copy];
 		[self setParameterEncoding:AFJSONParameterEncoding];
         [self registerHTTPOperationClass:[AFJSONRequestOperation class]];
         [self setDefaultHeader:@"Accept" value:@"application/json"];
+		[self setDefaultHeader:@"Accept" value:@"text/plain"];
 	}
 	return self;
 }
@@ -69,12 +74,11 @@ static NSString * const INFacebookLoginClientErrorDomain = @"INFacebookLoginClie
 - (NSURL *)authenticationURLForRedirectURI:(NSString *)redirectURI
 							   permissions:(NSArray *)permissions
 {
-	NSMutableDictionary *parameters = [NSMutableDictionary dictionaryWithCapacity:5];
-	parameters[@"client_id"] = self.clientID;
-	parameters[@"response_type"] = @"token";
-	_stateVerificationUUID = [[NSUUID UUID] UUIDString];
-	parameters[@"state"] = _stateVerificationUUID;
-	if (redirectURI) parameters[@"redirect_uri"] = redirectURI;
+	NSParameterAssert(redirectURI);
+	self.redirectURI = [redirectURI copy];
+	self.stateVerificationUUID = [[NSUUID UUID] UUIDString];
+	
+	NSMutableDictionary *parameters = [@{@"client_id": self.clientID, @"state" : self.stateVerificationUUID, @"redirect_uri" : self.redirectURI} mutableCopy];
 	if (permissions) parameters[@"scope"] = [permissions componentsJoinedByString:@","];
 	
 	NSString *query = [NSString URLQueryWithParameters:parameters];
@@ -83,15 +87,40 @@ static NSString * const INFacebookLoginClientErrorDomain = @"INFacebookLoginClie
 	return [baseURL URLWithQuery:query];
 }
 
-- (INFacebookAccessToken *)accessTokenForRedirectURL:(NSURL *)URL
+- (void)requestAccessTokenForRedirectURL:(NSURL *)URL
+								 success:(void(^)( INFacebookAccessToken *))success
+								 failure:(void(^)( NSError *))failure
 {
+	NSParameterAssert(URL);
 	NSDictionary *parameters = [URL.query URLQueryParameters];
-	INFacebookAccessToken *token = [[INFacebookAccessToken alloc] initWithParameters:parameters];
-	if (![token.state isEqualToString:_stateVerificationUUID]) {
-		token.error = [self.class stateMismatchError];
+	NSString *state = parameters[@"state"];
+	NSString *error = parameters[@"error"];
+	if (error.length) {
+		NSMutableDictionary *errorParameters = [NSMutableDictionary dictionaryWithCapacity:3];
+		errorParameters[@"fb_error"] = error;
+		
+		NSString *errorReason = parameters[@"error_reason"];
+		if (errorReason) errorParameters[NSLocalizedFailureReasonErrorKey] = errorReason;
+		
+		NSString *errorDescription = parameters[@"error_description"];
+		if (errorDescription) errorParameters[NSLocalizedDescriptionKey] = errorDescription;
+		
+		NSError *error = [NSError errorWithDomain:INFacebookLoginClientErrorDomain code:0 userInfo:errorParameters];
+		if (failure) failure(error);
+	} else if (![state isEqualToString:_stateVerificationUUID]) {
+		if (failure) failure(self.class.stateMismatchError);
+	} else {
+		[self getPath:@"oauth/access_token" parameters:@{@"client_id" : self.clientID, @"client_secret" : self.clientSecret, @"redirect_uri" : _redirectURI, @"code" : parameters[@"code"]} success:^(AFHTTPRequestOperation *operation, id responseObject) {
+			NSString *response = [[NSString alloc] initWithData:responseObject encoding:NSUTF8StringEncoding];
+			NSDictionary *parameters = [response URLQueryParameters];
+			INFacebookAccessToken *token = [[INFacebookAccessToken alloc] initWithParameters:parameters];
+			if (success) success(token);
+		} failure:^(AFHTTPRequestOperation *operation, NSError *error) {
+			if (failure) failure(error);
+		}];
 	}
 	_stateVerificationUUID = nil;
-	return token;
+	_redirectURI = nil;
 }
 
 + (NSError *)stateMismatchError
@@ -104,11 +133,10 @@ static NSString * const INFacebookLoginClientErrorDomain = @"INFacebookLoginClie
 							   success:(void(^)( INFacebookAccessTokenDebugInfo *))success
 							   failure:(void(^)( NSError *))failure
 {
-	NSMutableDictionary *parameters = [NSMutableDictionary dictionaryWithCapacity:2];
-	if (token) parameters[@"input_token"] = token;
-	if (appToken) parameters[@"access_token"] = appToken;
-	[self getPath:@"debug_token" parameters:parameters success:^(AFHTTPRequestOperation *operation, NSDictionary *dictionary) {
-		INFacebookAccessTokenDebugInfo *info = [[INFacebookAccessTokenDebugInfo alloc] initWithParameters:parameters[@"data"]];
+	NSParameterAssert(token);
+	NSParameterAssert(appToken);
+	[self getPath:@"debug_token" parameters:@{@"input_token": token, @"access_token" : appToken} success:^(AFHTTPRequestOperation *operation, NSDictionary *dictionary) {
+		INFacebookAccessTokenDebugInfo *info = [[INFacebookAccessTokenDebugInfo alloc] initWithParameters:dictionary[@"data"]];
 		if (success) success(info);
 	} failure:^(AFHTTPRequestOperation *operation, NSError *error) {
 		if (failure) failure(error);
@@ -130,17 +158,6 @@ static NSString * const INFacebookLoginClientErrorDomain = @"INFacebookLoginClie
 			NSTimeInterval expirySeconds = [expiryString doubleValue];
 			self.expiryDate = [NSDate dateWithTimeIntervalSinceNow:expirySeconds];
 		}
-		self.state = parameters[@"state"];
-		NSString *error = parameters[@"error"];
-		if (error.length) {
-			NSMutableDictionary *errorParameters = [NSMutableDictionary dictionaryWithCapacity:3];
-			errorParameters[@"fb_error"] = error;
-			NSString *errorReason = parameters[@"error_reason"];
-			if (errorReason) errorParameters[NSLocalizedFailureReasonErrorKey] = errorReason;
-			NSString *errorDescription = parameters[@"error_description"];
-			if (errorDescription) errorParameters[NSLocalizedDescriptionKey] = errorDescription;
-			self.error = [NSError errorWithDomain:INFacebookLoginClientErrorDomain code:0 userInfo:errorParameters];
-		}
 	}
 	return self;
 }
@@ -149,7 +166,7 @@ static NSString * const INFacebookLoginClientErrorDomain = @"INFacebookLoginClie
 
 - (NSString *)description
 {
-	return [NSString stringWithFormat:@"<%@:%p accessToken:%@ expiryDate:%@ state:%@ error:%@>", NSStringFromClass(self.class), self, self.accessToken, self.expiryDate, self.state, self.error];
+	return [NSString stringWithFormat:@"<%@:%p accessToken:%@ expiryDate:%@>", NSStringFromClass(self.class), self, self.accessToken, self.expiryDate];
 }
 @end
 
